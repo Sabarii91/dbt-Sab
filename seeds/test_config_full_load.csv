@@ -1,0 +1,2 @@
+model_name,test_type,key_column,test_query_model,compare_columns_ref,compare_columns,base_model,clone_suffix,config_set
+stg_customers,comprehensive_compare,CUSTOMER_ID,stg_customers_full_load_source,stg_customers_cols,,,FULL_LOAD

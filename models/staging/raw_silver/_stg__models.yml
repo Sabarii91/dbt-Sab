@@ -1,0 +1,11 @@
+# Staging only. Validation models live under models/validation/.
+# Option A: seeds/test_config_full_load.csv (default) or test_config.csv.
+# Run: dbt run-operation run_validation_tests  (full suite: --args with config_seed: test_config)
+version: 2
+
+models:
+  - name: stg_customers
+    description: "Staging model for customers (incremental); BEFORE_DELTA clone in QA (var before_delta_schema) for delta validation."
+
+  - name: stg_material
+    description: "Staging model for material (incremental); BEFORE_DELTA clone in QA (var before_delta_schema) for delta validation."

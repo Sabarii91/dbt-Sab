@@ -1,0 +1,9 @@
+# QA full-load reference queries for comprehensive_compare.
+version: 2
+
+models:
+  - name: stg_customers_full_load_source
+    description: "Same transform as stg_customers over raw CUST_SALES; full table for full-load compare."
+
+  - name: stg_material_full_load_source
+    description: "Same transform as stg_material over raw MAT_ATXT; full table for full-load compare."

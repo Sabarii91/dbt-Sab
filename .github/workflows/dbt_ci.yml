@@ -1,0 +1,73 @@
+# DBT CI: build models and run tests on push/PR
+# Set warehouse credentials in repo Secrets (e.g. DBT_USER, DBT_PASSWORD, DBT_HOST, etc.)
+# and add the right dbt adapter to requirements-dbt.txt or use dbt-core + your adapter.
+
+name: dbt CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  dbt-run-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dbt and adapter
+        run: |
+          python -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          pip install dbt-core  # add your adapter, e.g. pip install dbt-snowflake or dbt-bigquery
+          # If you have a requirements file: pip install -r requirements-dbt.txt
+
+      - name: Install dbt dependencies
+        run: |
+          . venv/bin/activate
+          dbt deps
+
+      # Optional: write profiles.yml from secrets (uncomment and set Secrets)
+      # - name: Configure profile
+      #   run: |
+      #     mkdir -p ~/.dbt
+      #     cat >> ~/.dbt/profiles.yml << 'EOF'
+      #     dbt_basic:
+      #       target: ci
+      #       outputs:
+      #         ci:
+      #           type: snowflake  # or bigquery, etc.
+      #           account: ${{ secrets.DBT_ACCOUNT }}
+      #           user: ${{ secrets.DBT_USER }}
+      #           password: ${{ secrets.DBT_PASSWORD }}
+      #           ...
+      #     EOF
+
+      - name: dbt run
+        run: |
+          . venv/bin/activate
+          dbt run
+        env:
+          # Add env vars your adapter needs (e.g. DBT_USER, DBT_PASSWORD)
+          DBT_PROFILES_DIR: ${{ github.workspace }}
+
+      - name: dbt test
+        run: |
+          . venv/bin/activate
+          dbt test
+        env:
+          DBT_PROFILES_DIR: ${{ github.workspace }}
+
+      # Optional: fail if raw sources are stale
+      # - name: dbt source freshness
+      #   run: |
+      #     . venv/bin/activate
+      #     dbt source freshness

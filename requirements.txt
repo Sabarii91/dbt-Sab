@@ -1,0 +1,14 @@
+# DBT project – all Python dependencies
+# Install: pip install -r requirements.txt
+# Then install dbt packages (e.g. dbt_utils): dbt deps
+#
+# Recommended: use Python 3.11 or 3.12. Python 3.14 is not fully supported
+# (mashumaro/pydantic compatibility issues with dbt-core).
+
+# --- DBT core and adapter ---
+dbt-core
+dbt-snowflake>=1.7.0,<2
+
+# --- Report (Streamlit UI + HTML report script) ---
+streamlit>=1.28.0
+pandas>=1.5.0

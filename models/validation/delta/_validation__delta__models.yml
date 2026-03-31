@@ -1,0 +1,15 @@
+# Delta validation models (source in QA, slices in SILVER).
+version: 2
+
+models:
+  - name: stg_customers_delta_source
+    description: "Same transform as stg_customers; rows in the delta batch vs BEFORE_DELTA for delta comprehensive_compare."
+
+  - name: stg_material_delta_source
+    description: "Raw-side NEW/UPDATED rows vs stg_material_BEFORE_DELTA for delta comprehensive_compare."
+
+  - name: stg_customers_delta_slice
+    description: "View of stg_customers for rows newer than max FIVETRANSYNC_DATE in BEFORE_DELTA clone."
+
+  - name: stg_material_delta_slice
+    description: "View of stg_material for NEW/UPDATED rows vs BEFORE_DELTA clone (column-level distinct)."

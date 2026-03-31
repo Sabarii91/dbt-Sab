@@ -1,0 +1,4 @@
+model_name,test_type,key_column,test_query_model,compare_columns_ref,compare_columns,base_model,clone_suffix,config_set
+stg_customers_delta_slice,comprehensive_compare,CUSTOMER_ID,stg_customers_delta_source,stg_customers_cols,,,,DELTA_SLICE
+stg_customers_delta_slice,delta_compare,CUSTOMER_ID,,stg_customers_cols,,stg_customers,_BEFORE_DELTA,DELTA
+stg_customers,comprehensive_compare,CUSTOMER_ID,stg_customers_full_load_source,stg_customers_cols,,,FULL_LOAD

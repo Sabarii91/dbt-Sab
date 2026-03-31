@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: raw
+    description: "Raw data loaded from upstream systems"
+    database: ZIMMERPOC
+    schema: RAW
+
+    tables:
+      - name: CUST_SALES
+        description: "Raw customer data"  
+
+      - name: MAT_ATXT
+        description: "Raw customer data"          
