@@ -70,10 +70,14 @@
   {% set before_delta_ref = get_before_delta_table_ref(base_model, clone_suffix) %}
 
   {# ── FIX #3: Validate the clone actually exists at compile time ─────────────── #}
+  {# get_before_delta_table_ref returns a string — derive parts from ref() directly #}
+  {% set _base_r       = ref(base_model) %}
+  {% set _clone_schema = var('before_delta_schema', 'QA') %}
+  {% set _before_id    = _base_r.identifier ~ (clone_suffix if clone_suffix else '_BEFORE_DELTA') %}
   {% set clone_relation = adapter.get_relation(
-      database = before_delta_ref.database,
-      schema   = before_delta_ref.schema,
-      identifier = before_delta_ref.identifier
+      database   = _base_r.database,
+      schema     = _clone_schema,
+      identifier = _before_id
   ) %}
   {% if not clone_relation %}
     {% do exceptions.raise_compiler_error(
@@ -81,27 +85,6 @@
       ~ '. Ensure the pre_hook ran successfully before this test.'
     ) %}
   {% endif %}
-
-  {# ── FIX #1 + #5: Safe cross-platform row hash using concat_ws + md5 ──────────
-     Snowflake: uses hash(concat_ws(...)) — fast native hash
-     Other:     uses md5(concat_ws(...))  — standard SQL, no silent no-op
-     concat_ws('|', ...) eliminates the collision risk of multi-arg hash()
-  #}
-  {% macro _row_hash(columns) %}
-    {% if target.type == 'snowflake' %}
-      hash(concat_ws('|',
-        {% for c in columns %}
-        coalesce(to_varchar({{ adapter.quote(c) }}), 'NULL'){% if not loop.last %}, {% endif %}
-        {% endfor %}
-      ))
-    {% else %}
-      md5(concat_ws('|',
-        {% for c in columns %}
-        coalesce(cast({{ adapter.quote(c) }} as varchar), 'NULL'){% if not loop.last %}, {% endif %}
-        {% endfor %}
-      ))
-    {% endif %}
-  {% endmacro %}
 
   with
 
@@ -196,7 +179,7 @@
     from view_key_counts v
     left join before_key_counts b
       on {% for k in key_cols %}v.{{ adapter.quote(k) }} = b.{{ adapter.quote(k) }}{% if not loop.last %} and {% endif %}{% endfor %}
-    where b.{% for k in key_cols %}{{ adapter.quote(k) }}{% endfor %} is null
+    where b.{{ adapter.quote(key_cols[0]) }} is null   {# left join miss — first key null means all keys null #}
       and v.key_count = 1   {# unique new keys only; duplicate new keys go to PATH 2 #}
   ),
 
@@ -388,4 +371,26 @@
   from all_compared
   where change_type in ('NEW', 'UPDATED')
 
+{% endmacro %}
+
+
+{# ── FIX #1 + #5: Safe cross-platform row hash using concat_ws + md5 ──────────
+   Snowflake: uses hash(concat_ws(...)) — fast native hash
+   Other:     uses md5(concat_ws(...))  — standard SQL, no silent no-op
+   concat_ws('|', ...) eliminates the collision risk of multi-arg hash()
+#}
+{% macro _row_hash(columns) %}
+  {% if target.type == 'snowflake' %}
+    hash(concat_ws('|',
+      {% for c in columns %}
+      coalesce(to_varchar({{ adapter.quote(c) }}), 'NULL'){% if not loop.last %}, {% endif %}
+      {% endfor %}
+    ))
+  {% else %}
+    md5(concat_ws('|',
+      {% for c in columns %}
+      coalesce(cast({{ adapter.quote(c) }} as varchar), 'NULL'){% if not loop.last %}, {% endif %}
+      {% endfor %}
+    ))
+  {% endif %}
 {% endmacro %}
