@@ -1,7 +1,6 @@
 {#
-  Comprehensive dataset comparison macro - V9
-  
-  Key improvement over V8:
+  Comprehensive dataset comparison macro - V10
+
   Two completely independent comparison paths:
 
   PATH 1 — Unique keys (keys appearing exactly once in BOTH source AND target)
@@ -9,12 +8,10 @@
     → Produces: MISSING_IN_TARGET, MISSING_IN_SOURCE, VALUE_MISMATCH
 
   PATH 2 — Duplicate keys (keys appearing >1 in EITHER source OR target)
-    → Set-based comparison: does any source row hash match any target row hash?
-    → Produces: DUPLICATE_NO_MATCH, DUPLICATE_PARTIAL_MATCH, DUPLICATE_FULL_MATCH
-    → Always also tagged with duplicate counts for visibility
+    → Reports all duplicate rows as-is; no content comparison attempted
+    → Produces: DUPLICATE_IN_SOURCE, DUPLICATE_IN_TARGET
+    → _INFO suffix when fail_on_duplicates=False
     → fail_on_duplicates controls whether these rows cause test failure
-
-  This eliminates false mismatches from arbitrary row picking (V7/V8 bug).
 #}
 
 {% macro comprehensive_compare(
@@ -23,7 +20,6 @@
     key_columns,
     compare_columns=None,
     fail_on_duplicates=True,
-    max_duplicate_report=100,
     target_name=None
 ) %}
 
@@ -119,14 +115,6 @@
       and t.key_count = 1
   ),
 
-  -- A key is "duplicate" if it appears >1 in EITHER side
-  -- Also captures keys that exist in one side only with duplicates
-  duplicate_keys as (
-    select row_key_hash from source_key_counts where key_count > 1
-    union
-    select row_key_hash from target_key_counts where key_count > 1
-  ),
-
   -- ============================================================
   -- PATH 1: UNIQUE KEY COMPARISON
   -- Clean 1:1 comparison — fully trustworthy results
@@ -219,113 +207,58 @@
   ),
 
   -- ============================================================
-  -- PATH 2: DUPLICATE KEY COMPARISON
-  -- Set-based: does any source row hash match any target row hash?
-  -- Reported separately, never mixed with Path 1 results
-  -- NOTE: LIMIT inside CTE is Snowflake-specific
+  -- PATH 2: DUPLICATE KEY REPORTING (simplified)
+  -- No content comparison — all duplicate rows reported as-is for review
   -- ============================================================
 
-  dup_source as (
-    select s.*,
-           skc.key_count as source_key_count
-    from source_raw s
-    inner join source_key_counts skc on s.row_key_hash = skc.row_key_hash
-    inner join duplicate_keys d on s.row_key_hash = d.row_key_hash
-    limit {{ max_duplicate_report }}
-  ),
-
-  dup_target as (
-    select t.*,
-           tkc.key_count as target_key_count
-    from target_raw t
-    inner join target_key_counts tkc on t.row_key_hash = tkc.row_key_hash
-    inner join duplicate_keys d on t.row_key_hash = d.row_key_hash
-    limit {{ max_duplicate_report }}
-  ),
-
-  -- Cross-join source and target rows on key + data hash to find content matches
-  dup_hash_matches as (
+  p2_duplicate_in_source as (
     select
       s.row_key_hash,
-      count(*) as matched_row_count
-    from dup_source s
-    inner join dup_target t
-      on s.row_key_hash = t.row_key_hash
-      and s.row_data_hash = t.row_data_hash   -- content match
-    group by s.row_key_hash
-  ),
-
-  -- One representative source row per duplicate key (for reporting)
-  dup_source_representative as (
-    select *
-    from dup_source
-    qualify row_number() over (
-      partition by row_key_hash
-      order by {{ order_by_keys }}
-    ) = 1
-  ),
-
-  -- One representative target row per duplicate key (for reporting)
-  dup_target_representative as (
-    select *
-    from dup_target
-    qualify row_number() over (
-      partition by row_key_hash
-      order by {{ order_by_keys }}
-    ) = 1
-  ),
-
-  -- Classify each duplicate key group
-  -- DUPLICATE_FULL_MATCH    : every source row has a matching target row (counts equal, all hashes match)
-  -- DUPLICATE_PARTIAL_MATCH : some rows match, some don't
-  -- DUPLICATE_NO_MATCH      : no content match found at all
-  p2_duplicate_results as (
-    select
-      sr.row_key_hash,
       {% for key in key_cols %}
-      sr.{{ key }},
+      s.{{ key }},
       {% endfor %}
-      case
-        when hm.matched_row_count is null then
-          {% if fail_on_duplicates %}'DUPLICATE_NO_MATCH'
-          {% else %}'DUPLICATE_NO_MATCH_INFO'{% endif %}
-        when hm.matched_row_count = sr.source_key_count
-          and hm.matched_row_count = tr.target_key_count then
-          'DUPLICATE_FULL_MATCH'
-        else
-          {% if fail_on_duplicates %}'DUPLICATE_PARTIAL_MATCH'
-          {% else %}'DUPLICATE_PARTIAL_MATCH_INFO'{% endif %}
-      end as anomaly_type,
-      case
-        when hm.matched_row_count is null then
-          'Duplicate key group: no content matches found between source and target'
-        when hm.matched_row_count = sr.source_key_count
-          and hm.matched_row_count = tr.target_key_count then
-          'Duplicate key group: all rows match between source and target'
-        else
-          'Duplicate key group: ' || to_varchar(coalesce(hm.matched_row_count, 0))
-          || ' of ' || to_varchar(sr.source_key_count) || ' source rows matched'
-      end as anomaly_description,
-      sr.row_data_hash as source_hash,
-      tr.row_data_hash as target_hash,
+      {% if fail_on_duplicates %}'DUPLICATE_IN_SOURCE'{% else %}'DUPLICATE_IN_SOURCE_INFO'{% endif %} as anomaly_type,
+      'Key appears ' || to_varchar(skc.key_count) || ' times in source; all rows reported for review' as anomaly_description,
+      s.row_data_hash as source_hash,
+      null::varchar   as target_hash,
       {% for col in compare_columns %}
-      sr.{{ col }} as source_{{ col }},
-      tr.{{ col }} as target_{{ col }},
+      s.{{ col }} as source_{{ col }},
+      null        as target_{{ col }},
       {% endfor %}
-      sr.source_key_count,
-      tr.target_key_count,
-      coalesce(hm.matched_row_count, 0) as matched_row_count
-    from dup_source_representative sr
-    left join dup_target_representative tr
-      on sr.row_key_hash = tr.row_key_hash
-    left join dup_hash_matches hm
-      on sr.row_key_hash = hm.row_key_hash
+      skc.key_count as source_key_count,
+      null          as target_key_count,
+      null          as matched_row_count
+    from source_raw s
+    inner join source_key_counts skc on s.row_key_hash = skc.row_key_hash
+    where skc.key_count > 1
+  ),
+
+  p2_duplicate_in_target as (
+    select
+      t.row_key_hash,
+      {% for key in key_cols %}
+      t.{{ key }},
+      {% endfor %}
+      {% if fail_on_duplicates %}'DUPLICATE_IN_TARGET'{% else %}'DUPLICATE_IN_TARGET_INFO'{% endif %} as anomaly_type,
+      'Key appears ' || to_varchar(tkc.key_count) || ' times in target; all rows reported for review' as anomaly_description,
+      null::varchar   as source_hash,
+      t.row_data_hash as target_hash,
+      {% for col in compare_columns %}
+      null        as source_{{ col }},
+      t.{{ col }} as target_{{ col }},
+      {% endfor %}
+      null          as source_key_count,
+      tkc.key_count as target_key_count,
+      null          as matched_row_count
+    from target_raw t
+    inner join target_key_counts tkc on t.row_key_hash = tkc.row_key_hash
+    where tkc.key_count > 1
   ),
 
   -- ============================================================
   -- FINAL: Combine both paths
-  -- Path 1 = clean, unambiguous
-  -- Path 2 = explicitly labelled duplicate analysis
+  -- Path 1 = clean, unambiguous unique-key comparison
+  -- Path 2 = duplicate rows reported as-is for human review
   -- ============================================================
 
   all_anomalies as (
@@ -335,9 +268,9 @@
     union all
     select * from p1_value_mismatches
     union all
-    select * from p2_duplicate_results
-    -- Optional: exclude FULL_MATCH rows if you only want failures
-    -- where anomaly_type != 'DUPLICATE_FULL_MATCH'
+    select * from p2_duplicate_in_source
+    union all
+    select * from p2_duplicate_in_target
   )
 
   select

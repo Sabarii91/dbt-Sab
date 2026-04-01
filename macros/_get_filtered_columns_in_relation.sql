@@ -1,15 +1,25 @@
-{#
-  Replaces dbt_utils.get_filtered_columns_in_relation so we don't require the dbt_utils package.
-  Returns list of column names from the relation, excluding those in the except list (case-insensitive).
-#}
-{% macro _get_filtered_columns_in_relation(relation, except_columns) %}
-  {% set all_cols = adapter.get_columns_in_relation(relation) %}
+{% macro _get_filtered_columns_in_relation(relation, except_columns=[]) %}
+
+  {# Safety: ensure except_columns is always a list #}
+  {% if except_columns is none %}
+      {% set except_columns = [] %}
+  {% endif %}
+
+  {# Normalize exclusion list to uppercase for comparison #}
   {% set except_upper = except_columns | map('upper') | list %}
-  {% set ns = namespace(list=[]) %}
+
+  {# Get columns safely #}
+  {% set all_cols = adapter.get_columns_in_relation(relation) %}
+
+  {# Initialize namespace #}
+  {% set ns = namespace(filtered_cols=[]) %}
+
   {% for col in all_cols %}
-    {% if col.name | upper not in except_upper %}
-      {% set ns.list = ns.list + [col.name] %}
-    {% endif %}
+      {% if col.name | upper not in except_upper %}
+          {% set ns.filtered_cols = ns.filtered_cols + [col.name] %}
+      {% endif %}
   {% endfor %}
-  {{ return(ns.list) }}
+
+  {{ return(ns.filtered_cols) }}
+
 {% endmacro %}
